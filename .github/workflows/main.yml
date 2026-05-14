@@ -1,0 +1,99 @@
+name: Build Release APK
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      # ✅ Checkout (fast & clean)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ✅ Cache Gradle (Massive speed boost)
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # ✅ Unzip project safely
+      - name: Unzip project
+        run: |
+          unzip -o 123.zip
+          ls -la
+
+      # ✅ Fix gradlew (CRLF → Unix) + ensure executable
+      - name: Fix gradlew
+        run: |
+          sed -i 's/\r$//' ads-maker-file/gradlew
+          chmod +x ads-maker-file/gradlew
+
+      # ✅ Setup Java 17 (with built-in cache)
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # ✅ Setup Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ✅ Accept licenses (non-interactive & silent)
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null
+
+      # ✅ Install required SDK components (idempotent)
+      - name: Install SDK components
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2"
+
+      # ✅ Verify SDK installation
+      - name: Verify SDK
+        run: sdkmanager --list | grep "33.0.2" || true
+
+      # ✅ Build Release APK
+      - name: Build Release APK
+        run: |
+          cd ads-maker-file
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      # ✅ Locate APK clearly
+      - name: Locate APK
+        run: |
+          echo "APK files found:"
+          find ads-maker-file -type f -name "*.apk"
+
+      # ✅ Upload APK artifact (always if build succeeds)
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: ads-maker-file/app/build/outputs/apk/release/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
